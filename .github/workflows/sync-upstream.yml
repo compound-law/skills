@@ -17,19 +17,38 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Sync fork from upstream
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge upstream into fork main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          echo "Pre-sync state:"
-          gh api repos/${{ github.repository }}/commits/main --jq '"  fork:     " + .sha'
-          gh api repos/anthropics/skills/commits/main --jq '"  upstream: " + .sha'
+          git config user.email "actions@github.com"
+          git config user.name "compound-law-sync-bot"
 
-          echo
-          echo "Running gh repo sync..."
-          gh repo sync ${{ github.repository }} --source anthropics/skills
+          git remote add upstream https://github.com/anthropics/skills.git
+          git fetch upstream main
 
-          echo
-          echo "Post-sync state:"
-          gh api repos/${{ github.repository }}/commits/main --jq '"  fork:     " + .sha'
+          UPSTREAM=$(git rev-parse upstream/main)
+          FORK=$(git rev-parse HEAD)
+          echo "Pre-sync:"
+          echo "  fork:     $FORK"
+          echo "  upstream: $UPSTREAM"
+
+          if git merge-base --is-ancestor "$UPSTREAM" "$FORK"; then
+            echo "Fork already contains upstream HEAD; nothing to do."
+            exit 0
+          fi
+
+          # ff when possible, merge commit on divergence.
+          # Never force-push — preserves history and keeps the local cron's `git pull --ff-only` happy.
+          git merge upstream/main --no-edit -m "Sync upstream anthropics/skills @ ${UPSTREAM}"
+          git push origin main
+
+          echo "Post-sync:"
+          echo "  fork: $(git rev-parse HEAD)"
