@@ -1,0 +1,35 @@
+name: Sync upstream
+
+on:
+  schedule:
+    # Daily at 00:00 UTC. GitHub schedules can drift by minutes under load.
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync fork from upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "Pre-sync state:"
+          gh api repos/${{ github.repository }}/commits/main --jq '"  fork:     " + .sha'
+          gh api repos/anthropics/skills/commits/main --jq '"  upstream: " + .sha'
+
+          echo
+          echo "Running gh repo sync..."
+          gh repo sync ${{ github.repository }} --source anthropics/skills
+
+          echo
+          echo "Post-sync state:"
+          gh api repos/${{ github.repository }}/commits/main --jq '"  fork:     " + .sha'
